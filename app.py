@@ -1,128 +1,107 @@
-# app.py
 import streamlit as st
 import pandas as pd
+import openai
+import os
+
+# ----------------------------
+# CONFIGURACIÓN OPENAI
+# ----------------------------
+# Guarda tu API Key como variable de entorno en Streamlit Cloud
+# Ej: OPENAI_API_KEY
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # ----------------------------
 # APP TITLE
 # ----------------------------
-st.title("EUDR Risk Assessment")
-st.markdown("Upload a CSV file with supplier data")
+st.title("EUDR Risk Assessment with AI")
+st.markdown("Upload a CSV of suppliers with country and crop.")
 
 # ----------------------------
 # FILE UPLOADER
 # ----------------------------
-uploaded_file = st.file_uploader("Upload your CSV", type=["csv"])
+uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
 
 # ----------------------------
-# RISK TABLE (REFERENCE DATA)
+# FUNCIONES DE IA
 # ----------------------------
-risk_table = pd.DataFrame({
-    "country": ["argentina","brazil","colombia","costa rica","france","indonesia","mexico","spain"],
-    "crop": ["soybean","coffee","coffee","coffee","cattle","oil palm","coffee","olives"],
-    "risk_score": [3,3,2,1,1,3,2,1],
-    "risk_level": ["high","high","medium","low","low","high","medium","low"],
-    "deforestation": [1,1,1,0,0,1,1,0]
-})
+
+def ai_normalize_name(name, entity_type="country"):
+    """
+    Usa GPT para corregir nombres de países o cultivos.
+    """
+    prompt = f"Correct the {entity_type} name: '{name}' to a standard form. Respond with only the corrected name."
+    try:
+        response = openai.Completion.create(
+            engine="text-davinci-003",
+            prompt=prompt,
+            temperature=0,
+            max_tokens=10
+        )
+        corrected = response.choices[0].text.strip()
+        return corrected
+    except Exception as e:
+        st.warning(f"AI normalization failed for {name}: {e}")
+        return name
 
 # ----------------------------
-# NORMALIZATION FUNCTIONS
-# ----------------------------
-def normalize_country(x):
-    x = str(x).strip().lower()
-    mapping = {
-        "brasil": "brazil",
-        "brazil": "brazil",
-        "arg": "argentina",
-        "argentina": "argentina",
-        "colombia": "colombia",
-        "costa rica": "costa rica",
-        "france": "france",
-        "francia": "france",
-        "indonesia": "indonesia",
-        "mexico": "mexico",
-        "méxico": "mexico",
-        "spain": "spain",
-        "españa": "spain"
-    }
-    return mapping.get(x, x)
-
-def normalize_crop(x):
-    x = str(x).strip().lower()
-    mapping = {
-        "coffee beans": "coffee",
-        "coffee": "coffee",
-        "soy beans": "soybean",
-        "soybean": "soybean",
-        "cattle": "cattle",
-        "beef": "cattle",
-        "oil palm": "oil palm",
-        "palm oil": "oil palm",
-        "olives": "olives"
-    }
-    return mapping.get(x, x)
-
-# ----------------------------
-# RISK CALCULATION FUNCTION
+# FUNCION CALCULO DE RIESGO
 # ----------------------------
 def calculate_risk(row):
-    score = row.get("risk_score", 1)
-    explanation = [f"Base risk: {row.get('risk_level', 'unknown')}"]
+    """
+    Calcula un score base de riesgo según país y crop.
+    """
+    high_risk_countries = ["brazil", "indonesia", "argentina", "colombia"]
+    high_risk_crops = ["soybean", "cattle", "coffee", "oil palm"]
+
+    score = 1
+    explanation = []
+
+    if row["country"].lower() in high_risk_countries:
+        score += 2
+        explanation.append("Country high risk")
+
+    if row["crop"].lower() in high_risk_crops:
+        score += 1
+        explanation.append("Crop high risk")
 
     if row.get("deforestation", 0) == 1:
         score += 2
-        explanation.append("Deforestation risk")
+        explanation.append("Deforestation history")
 
     if score <= 2:
-        level = "low"
+        level = "Low"
     elif score <= 4:
-        level = "medium"
+        level = "Medium"
     else:
-        level = "high"
+        level = "High"
 
-    return pd.Series([score, level, ", ".join(explanation)])
+    explanation_text = ", ".join(explanation) if explanation else "No additional risk"
+    return pd.Series([score, level, explanation_text])
 
 # ----------------------------
 # MAIN LOGIC
 # ----------------------------
 if uploaded_file:
-    # Read CSV safely
-    df = pd.read_csv(uploaded_file, sep=None, engine="python")
-
-    # Clean column names
-    df.columns = df.columns.str.strip().str.lower()
-
-    # Remove Excel garbage columns
-    df = df.loc[:, ~df.columns.str.contains("^unnamed")]
-
-    st.write("Detected columns:", df.columns.tolist())
-
-    # Validate required columns
-    if "country" not in df.columns or "crop" not in df.columns:
-        st.error("CSV must contain columns: country, crop")
+    df = pd.read_csv(uploaded_file)
+    
+    # Detect required columns
+    required_cols = ["country", "crop"]
+    if not all(col in df.columns.str.lower() for col in required_cols):
+        st.error(f"CSV must contain columns: {required_cols}")
         st.stop()
 
-    # Normalize input data
-    df["country"] = df["country"].apply(normalize_country)
-    df["crop"] = df["crop"].apply(normalize_crop)
+    df.columns = df.columns.str.lower()
 
-    # Normalize risk table
-    risk_table["country"] = risk_table["country"].str.strip().str.lower()
-    risk_table["crop"] = risk_table["crop"].str.strip().str.lower()
+    # Normalizar con IA
+    with st.spinner("Normalizing names with AI..."):
+        df["country"] = df["country"].apply(lambda x: ai_normalize_name(x, "country"))
+        df["crop"] = df["crop"].apply(lambda x: ai_normalize_name(x, "crop"))
 
-    # Merge with risk table
-    df = df.merge(risk_table, on=["country","crop"], how="left")
+    # Calcular riesgo
+    df[["risk_score", "risk_level", "explanation"]] = df.apply(calculate_risk, axis=1)
 
-    # Fill missing risk values
-    df["risk_score"] = df["risk_score"].fillna(2)
-    df["risk_level"] = df["risk_level"].fillna("medium")
-    df["deforestation"] = df["deforestation"].fillna(0)
-
-    # Calculate final risk
-    df[["final_score","final_risk","explanation"]] = df.apply(
-        calculate_risk,
-        axis=1
-    )
-
-    # Output
+    # Mostrar resultados
+    st.write("### Results")
+    st.dataframe(df)
     st.write("### Results")
     st.dataframe(df)

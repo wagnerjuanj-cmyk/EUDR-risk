@@ -8,22 +8,22 @@ st.markdown("Upload a CSV file with supplier data")
 uploaded_file = st.file_uploader("Upload your CSV", type=["csv"])
 
 # ----------------------------
-# Risk reference table
+# RISK REFERENCE TABLE
 # ----------------------------
 risk_table = pd.DataFrame({
-    "country": ["brazil","brazil","france","colombia","costa rica","mexico",
-                "spain","argentina","argentina","brazil","indonesia","indonesia"],
-    "crop": ["coffee","soybean","cattle","coffee","coffee","coffee",
-             "olives","soybean","cattle","cattle","oil palm","rubber"],
-    "risk_level": ["High","High","Low","Medium","Low","Medium",
-                   "Low","High","High","High","High","High"],
-    "risk_score": [3,3,1,2,1,2,1,3,3,3,3,3],
-    "deforestation": [1,1,0,1,0,1,0,1,1,1,1,1],
-    "coordinates": [0,0,1,0,1,0,1,0,0,0,0,0]
+    "country": ["argentina","argentina","brazil","brazil","brazil","colombia",
+                "costa rica","france","indonesia","indonesia","mexico","spain"],
+    "crop": ["soybean","cattle","coffee","soybean","cattle","coffee",
+             "coffee","cattle","oil palm","rubber","coffee","olives"],
+    "risk_level": ["high","high","high","high","high","medium",
+                   "low","low","high","high","medium","low"],
+    "risk_score": [3,3,3,3,3,2,1,1,3,3,2,1],
+    "deforestation": [1,1,1,1,1,1,0,0,1,1,1,0],
+    "coordinates": [0,0,0,0,0,0,1,1,0,0,0,1]
 })
 
 # ----------------------------
-# Risk function
+# RISK FUNCTION
 # ----------------------------
 def calculate_risk(row):
     score = row.get("risk_score", 0)
@@ -51,38 +51,66 @@ def calculate_risk(row):
 # ----------------------------
 if uploaded_file:
 
-    # Read CSV (MOST IMPORTANT FIX)
+    # READ CSV (ROBUST)
     df = pd.read_csv(uploaded_file, sep=None, engine="python")
 
-    # Clean column names
+    # CLEAN COLUMN NAMES
     df.columns = df.columns.str.strip().str.lower()
 
-    # Show columns for debugging
+    # REMOVE EMPTY EXCEL COLUMNS
+    df = df.loc[:, ~df.columns.str.contains("^unnamed")]
+
     st.write("Detected columns:", df.columns.tolist())
 
-    # Validate required columns
-    if "country" not in df.columns or "crop" not in df.columns:
-        st.error("Your CSV must contain columns: Country and Crop")
+    # ----------------------------
+    # VALIDATION
+    # ----------------------------
+    required_cols = {"country", "crop"}
+
+    if not required_cols.issubset(df.columns):
+        st.error("Missing required columns: country, crop")
         st.stop()
 
-    # Merge risk table
+    # ----------------------------
+    # NORMALIZE TEXT VALUES
+    # ----------------------------
+    df["country"] = df["country"].astype(str).str.strip().str.lower()
+    df["crop"] = df["crop"].astype(str).str.strip().str.lower()
+
+    # ----------------------------
+    # NORMALIZE RISK TABLE
+    # ----------------------------
+    risk_table["country"] = risk_table["country"].str.strip().str.lower()
+    risk_table["crop"] = risk_table["crop"].str.strip().str.lower()
+
+    # ----------------------------
+    # MERGE
+    # ----------------------------
     df = df.merge(risk_table, on=["country", "crop"], how="left")
 
-    # Fill missing values
+    # ----------------------------
+    # FILL MISSING VALUES
+    # ----------------------------
     df["risk_score"] = df["risk_score"].fillna(0)
-    df["risk_level"] = df["risk_level"].fillna("Unknown")
+    df["risk_level"] = df["risk_level"].fillna("unknown")
     df["deforestation"] = df["deforestation"].fillna(0)
 
-    # Add default column if missing
+    # ----------------------------
+    # OPTIONAL COLUMN
+    # ----------------------------
     if "has_coordinates" not in df.columns:
         df["has_coordinates"] = 1
 
-    # Calculate risk
+    # ----------------------------
+    # CALCULATE RISK
+    # ----------------------------
     df[["final_score", "final_risk", "explanation"]] = df.apply(
         calculate_risk,
         axis=1
     )
 
-    # Output
+    # ----------------------------
+    # OUTPUT
+    # ----------------------------
     st.write("### Results")
     st.dataframe(df)

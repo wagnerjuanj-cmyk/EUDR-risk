@@ -51,53 +51,53 @@ def calculate_risk(row):
 # ----------------------------
 if uploaded_file:
 
-    # READ CSV (ROBUST)
+    # Read CSV safely
     df = pd.read_csv(uploaded_file, sep=None, engine="python")
 
-    # CLEAN COLUMN NAMES
+    # Clean columns
     df.columns = df.columns.str.strip().str.lower()
 
-    # REMOVE EMPTY EXCEL COLUMNS
+    # Remove Excel garbage columns
     df = df.loc[:, ~df.columns.str.contains("^unnamed")]
 
     st.write("Detected columns:", df.columns.tolist())
 
-    # ----------------------------
-    # VALIDATION
-    # ----------------------------
-    required_cols = {"country", "crop"}
-
-    if not required_cols.issubset(df.columns):
+    # Validate required columns
+    if "country" not in df.columns or "crop" not in df.columns:
         st.error("Missing required columns: country, crop")
         st.stop()
 
-    # ----------------------------
-    # NORMALIZE TEXT VALUES
-    # ----------------------------
+    # Normalize text
     df["country"] = df["country"].astype(str).str.strip().str.lower()
     df["crop"] = df["crop"].astype(str).str.strip().str.lower()
 
-    # ----------------------------
-    # NORMALIZE RISK TABLE
-    # ----------------------------
     risk_table["country"] = risk_table["country"].str.strip().str.lower()
     risk_table["crop"] = risk_table["crop"].str.strip().str.lower()
 
     # ----------------------------
-    # MERGE
+    # MERGE (FIXED: avoid column conflicts)
     # ----------------------------
-    df = df.merge(risk_table, on=["country", "crop"], how="left")
+    df = df.merge(
+        risk_table,
+        on=["country", "crop"],
+        how="left",
+        suffixes=("", "_ref")
+    )
 
-    # ----------------------------
-    # FILL MISSING VALUES
-    # ----------------------------
+    # If duplicates exist, prefer risk_table values
+    for col in ["risk_score", "risk_level", "deforestation", "coordinates"]:
+        ref_col = f"{col}_ref"
+        if ref_col in df.columns:
+            df[col] = df[ref_col]
+            df.drop(columns=[ref_col], inplace=True)
+
+    # Fill missing values safely
     df["risk_score"] = df["risk_score"].fillna(0)
     df["risk_level"] = df["risk_level"].fillna("unknown")
     df["deforestation"] = df["deforestation"].fillna(0)
+    df["coordinates"] = df["coordinates"].fillna(0)
 
-    # ----------------------------
-    # OPTIONAL COLUMN
-    # ----------------------------
+    # Ensure optional column exists
     if "has_coordinates" not in df.columns:
         df["has_coordinates"] = 1
 
@@ -112,5 +112,7 @@ if uploaded_file:
     # ----------------------------
     # OUTPUT
     # ----------------------------
+    st.write("### Results")
+    st.dataframe(df)
     st.write("### Results")
     st.dataframe(df)

@@ -1,9 +1,20 @@
-st.title("EUDR Risk Assessment")
+# app.py
+import streamlit as st
+import pandas as pd
 
+# ----------------------------
+# APP TITLE
+# ----------------------------
+st.title("EUDR Risk Assessment")
+st.markdown("Upload a CSV file with supplier data")
+
+# ----------------------------
+# FILE UPLOADER
+# ----------------------------
 uploaded_file = st.file_uploader("Upload your CSV", type=["csv"])
 
 # ----------------------------
-# RISK TABLE (BASE DATA)
+# RISK TABLE (REFERENCE DATA)
 # ----------------------------
 risk_table = pd.DataFrame({
     "country": ["argentina","brazil","colombia","costa rica","france","indonesia","mexico","spain"],
@@ -14,7 +25,7 @@ risk_table = pd.DataFrame({
 })
 
 # ----------------------------
-# SIMPLE COUNTRY NORMALIZER (mini-AI rules)
+# NORMALIZATION FUNCTIONS
 # ----------------------------
 def normalize_country(x):
     x = str(x).strip().lower()
@@ -51,7 +62,7 @@ def normalize_crop(x):
     return mapping.get(x, x)
 
 # ----------------------------
-# RISK FUNCTION
+# RISK CALCULATION FUNCTION
 # ----------------------------
 def calculate_risk(row):
     score = row.get("risk_score", 1)
@@ -71,51 +82,47 @@ def calculate_risk(row):
     return pd.Series([score, level, ", ".join(explanation)])
 
 # ----------------------------
-# APP
+# MAIN LOGIC
 # ----------------------------
 if uploaded_file:
-
+    # Read CSV safely
     df = pd.read_csv(uploaded_file, sep=None, engine="python")
 
+    # Clean column names
     df.columns = df.columns.str.strip().str.lower()
+
+    # Remove Excel garbage columns
+    df = df.loc[:, ~df.columns.str.contains("^unnamed")]
 
     st.write("Detected columns:", df.columns.tolist())
 
+    # Validate required columns
     if "country" not in df.columns or "crop" not in df.columns:
-        st.error("CSV must contain: country, crop")
+        st.error("CSV must contain columns: country, crop")
         st.stop()
 
-    # ----------------------------
-    # NORMALIZATION (KEY FIX)
-    # ----------------------------
+    # Normalize input data
     df["country"] = df["country"].apply(normalize_country)
     df["crop"] = df["crop"].apply(normalize_crop)
 
-    risk_table["country"] = risk_table["country"].str.lower()
-    risk_table["crop"] = risk_table["crop"].str.lower()
+    # Normalize risk table
+    risk_table["country"] = risk_table["country"].str.strip().str.lower()
+    risk_table["crop"] = risk_table["crop"].str.strip().str.lower()
 
-    # ----------------------------
-    # MERGE
-    # ----------------------------
+    # Merge with risk table
     df = df.merge(risk_table, on=["country","crop"], how="left")
 
-    # ----------------------------
-    # IF NO MATCH → fallback risk (IMPORTANT)
-    # ----------------------------
+    # Fill missing risk values
     df["risk_score"] = df["risk_score"].fillna(2)
     df["risk_level"] = df["risk_level"].fillna("medium")
     df["deforestation"] = df["deforestation"].fillna(0)
 
-    # ----------------------------
-    # RISK CALCULATION
-    # ----------------------------
+    # Calculate final risk
     df[["final_score","final_risk","explanation"]] = df.apply(
         calculate_risk,
         axis=1
     )
 
-    # ----------------------------
-    # OUTPUT
-    # ----------------------------
+    # Output
     st.write("### Results")
     st.dataframe(df)

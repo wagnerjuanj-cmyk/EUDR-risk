@@ -11,35 +11,32 @@ uploaded_file = st.file_uploader("Upload your CSV", type=["csv"])
 # Risk reference table
 # ----------------------------
 risk_table = pd.DataFrame({
-    "Country": ["Brazil","Brazil","France","Colombia","Costa Rica","Mexico",
+    "country": ["Brazil","Brazil","France","Colombia","Costa Rica","Mexico",
                 "Spain","Argentina","Argentina","Brazil","Indonesia","Indonesia"],
-    "Crop": ["Coffee","Soybean","Cattle","Coffee","Coffee","Coffee",
+    "crop": ["Coffee","Soybean","Cattle","Coffee","Coffee","Coffee",
              "Olives","Soybean","Cattle","Cattle","Oil Palm","Rubber"],
-    "Risk_Level": ["High","High","Low","Medium","Low","Medium",
+    "risk_level": ["High","High","Low","Medium","Low","Medium",
                    "Low","High","High","High","High","High"],
-    "Risk_Score": [3,3,1,2,1,2,1,3,3,3,3,3],
-    "Deforestation": [1,1,0,1,0,1,0,1,1,1,1,1],
-    "Coordinates": [0,0,1,0,1,0,1,0,0,0,0,0]
+    "risk_score": [3,3,1,2,1,2,1,3,3,3,3,3],
+    "deforestation": [1,1,0,1,0,1,0,1,1,1,1,1],
+    "coordinates": [0,0,1,0,1,0,1,0,0,0,0,0]
 })
 
 # ----------------------------
-# Risk calculation function
+# Risk function
 # ----------------------------
 def calculate_risk(row):
-    score = row.get("Risk_Score", 0)
-    explanation = [f"Base risk: {row.get('Risk_Level', 'Unknown')}"]
+    score = row.get("risk_score", 0)
+    explanation = [f"Base risk: {row.get('risk_level', 'unknown')}"]
 
-    # Missing coordinates
     if row.get("has_coordinates", 1) == 0:
         score += 2
         explanation.append("Missing supplier coordinates")
 
-    # Deforestation risk
-    if row.get("Deforestation", 0) == 1:
+    if row.get("deforestation", 0) == 1:
         score += 2
         explanation.append("Deforestation risk area")
 
-    # Final level
     if score <= 2:
         level = "Low"
     elif score <= 5:
@@ -53,40 +50,69 @@ def calculate_risk(row):
 # App logic
 # ----------------------------
 if uploaded_file:
+
     df = pd.read_csv(uploaded_file)
 
     # ----------------------------
-    # FIX: clean column names (IMPORTANT)
+    # CLEAN COLUMN NAMES (CRITICAL FIX)
     # ----------------------------
-    df.columns = df.columns.str.strip()
+    df.columns = (
+        df.columns
+        .str.strip()
+        .str.lower()
+    )
+
+    risk_table.columns = risk_table.columns.str.lower()
 
     # ----------------------------
-    # Validate required columns
+    # OPTIONAL COLUMN FLEXIBILITY
     # ----------------------------
-    required_cols = {"Country", "Crop"}
+    rename_map = {
+        "countries": "country",
+        "country_name": "country",
+        "crop type": "crop",
+        "product": "crop"
+    }
+
+    df = df.rename(columns=rename_map)
+
+    # ----------------------------
+    # VALIDATION
+    # ----------------------------
+    required_cols = {"country", "crop"}
     missing = required_cols - set(df.columns)
 
     if missing:
         st.error(f"Missing required columns: {missing}")
+        st.write("Your file columns:", df.columns.tolist())
         st.stop()
 
     # ----------------------------
-    # Merge with risk table
+    # MERGE RISK DATA
     # ----------------------------
-    df = df.merge(risk_table, on=["Country", "Crop"], how="left")
+    df = df.merge(risk_table, on=["country", "crop"], how="left")
 
-    # Fill missing values after merge (important safety step)
-    df["Risk_Score"] = df["Risk_Score"].fillna(0)
-    df["Risk_Level"] = df["Risk_Level"].fillna("Unknown")
-    df["Deforestation"] = df["Deforestation"].fillna(0)
-
-    # ----------------------------
-    # Calculate final risk
-    # ----------------------------
-    df[["Final_Score", "Final_Risk", "Explanation"]] = df.apply(calculate_risk, axis=1)
+    # Fill missing values safely
+    df["risk_score"] = df["risk_score"].fillna(0)
+    df["risk_level"] = df["risk_level"].fillna("Unknown")
+    df["deforestation"] = df["deforestation"].fillna(0)
 
     # ----------------------------
-    # Output
+    # OPTIONAL INPUT COLUMN
+    # ----------------------------
+    if "has_coordinates" not in df.columns:
+        df["has_coordinates"] = 1
+
+    # ----------------------------
+    # CALCULATE FINAL RISK
+    # ----------------------------
+    df[["final_score", "final_risk", "explanation"]] = df.apply(
+        calculate_risk,
+        axis=1
+    )
+
+    # ----------------------------
+    # OUTPUT
     # ----------------------------
     st.write("### Results")
     st.dataframe(df)

@@ -7,7 +7,9 @@ st.markdown("Upload a CSV file with supplier data")
 
 uploaded_file = st.file_uploader("Upload your CSV", type=["csv"])
 
+# ----------------------------
 # Risk reference table
+# ----------------------------
 risk_table = pd.DataFrame({
     "Country": ["Brazil","Brazil","France","Colombia","Costa Rica","Mexico",
                 "Spain","Argentina","Argentina","Brazil","Indonesia","Indonesia"],
@@ -20,18 +22,24 @@ risk_table = pd.DataFrame({
     "Coordinates": [0,0,1,0,1,0,1,0,0,0,0,0]
 })
 
+# ----------------------------
+# Risk calculation function
+# ----------------------------
 def calculate_risk(row):
-    score = row['Risk_Score']
-    explanation = [f"Base risk: {row['Risk_Level']}"]
+    score = row.get("Risk_Score", 0)
+    explanation = [f"Base risk: {row.get('Risk_Level', 'Unknown')}"]
 
-    if row.get('has_coordinates', 1) == 0:
+    # Missing coordinates
+    if row.get("has_coordinates", 1) == 0:
         score += 2
         explanation.append("Missing supplier coordinates")
 
-    if row['Deforestation'] == 1:
+    # Deforestation risk
+    if row.get("Deforestation", 0) == 1:
         score += 2
-        explanation.append("Deforestation risk")
+        explanation.append("Deforestation risk area")
 
+    # Final level
     if score <= 2:
         level = "Low"
     elif score <= 5:
@@ -41,16 +49,44 @@ def calculate_risk(row):
 
     return pd.Series([score, level, ", ".join(explanation)])
 
+# ----------------------------
+# App logic
+# ----------------------------
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
 
+    # ----------------------------
+    # FIX: clean column names (IMPORTANT)
+    # ----------------------------
+    df.columns = df.columns.str.strip()
+
+    # ----------------------------
+    # Validate required columns
+    # ----------------------------
+    required_cols = {"Country", "Crop"}
+    missing = required_cols - set(df.columns)
+
+    if missing:
+        st.error(f"Missing required columns: {missing}")
+        st.stop()
+
+    # ----------------------------
     # Merge with risk table
+    # ----------------------------
     df = df.merge(risk_table, on=["Country", "Crop"], how="left")
 
-    # Calculate risk
-    df[['Final_Score', 'Final_Risk', 'Explanation']] = df.apply(calculate_risk, axis=1)
+    # Fill missing values after merge (important safety step)
+    df["Risk_Score"] = df["Risk_Score"].fillna(0)
+    df["Risk_Level"] = df["Risk_Level"].fillna("Unknown")
+    df["Deforestation"] = df["Deforestation"].fillna(0)
 
+    # ----------------------------
+    # Calculate final risk
+    # ----------------------------
+    df[["Final_Score", "Final_Risk", "Explanation"]] = df.apply(calculate_risk, axis=1)
+
+    # ----------------------------
+    # Output
+    # ----------------------------
     st.write("### Results")
-    st.write(df)
-    st.write("### Distribución de riesgo")
-    st.bar_chart(df['riesgo'].value_counts())
+    st.dataframe(df)
